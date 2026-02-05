@@ -1,17 +1,43 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { db } from './firebase'; // Firebase bağlantısı
+import { collection, addDoc, query, orderBy, limit, getDocs } from "firebase/firestore";
+import { Trophy, Play, RotateCcw } from 'lucide-react';
 
 const App = () => {
-  const [carPos, setCarPos] = useState(50); // Arabanın yatay pozisyonu (%)
+  const [carPos, setCarPos] = useState(50);
   const [obstacles, setObstacles] = useState([]);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
+  const [highScores, setHighScores] = useState([]);
 
-  // Arabayı hareket ettir
+  // Firebase'den En Yüksek Skorları Çek
+  const fetchHighScores = async () => {
+    const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
+    const querySnapshot = await getDocs(q);
+    const scores = [];
+    querySnapshot.forEach((doc) => scores.push(doc.data()));
+    setHighScores(scores);
+  };
+
+  // Skoru Firebase'e Kaydet
+  const saveScore = async () => {
+    try {
+      await addDoc(collection(db, "scores"), {
+        name: "Efe", // Burayı geliştirebilirsin
+        score: score,
+        date: new Date()
+      });
+      fetchHighScores();
+    } catch (e) {
+      console.error("Hata: ", e);
+    }
+  };
+
   const moveCar = useCallback((e) => {
     if (gameOver) return;
-    if (e.key === 'ArrowLeft' && carPos > 10) setCarPos(prev => prev - 10);
-    if (e.key === 'ArrowRight' && carPos < 90) setCarPos(prev => prev + 10);
+    if (e.key === 'ArrowLeft' && carPos > 15) setCarPos(p => p - 15);
+    if (e.key === 'ArrowRight' && carPos < 85) setCarPos(p => p + 15);
   }, [carPos, gameOver]);
 
   useEffect(() => {
@@ -19,100 +45,88 @@ const App = () => {
     return () => window.removeEventListener('keydown', moveCar);
   }, [moveCar]);
 
-  // Oyun Döngüsü
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
     const gameInterval = setInterval(() => {
       setObstacles(prev => {
-        const newObstacles = prev
-          .map(obs => ({ ...obs, top: obs.top + 5 }))
-          .filter(obs => obs.top < 110);
-
-        // Çarpışma Kontrolü
-        newObstacles.forEach(obs => {
-          if (obs.top > 80 && obs.top < 95 && Math.abs(obs.left - carPos) < 15) {
+        const newObs = prev.map(o => ({ ...o, top: o.top + 6 })).filter(o => o.top < 110);
+        newObs.forEach(o => {
+          if (o.top > 80 && o.top < 95 && Math.abs(o.left - carPos) < 12) {
             setGameOver(true);
+            saveScore();
           }
         });
-
-        return newObstacles;
+        return newObs;
       });
+      setScore(s => s + 1);
+    }, 40);
 
-      setScore(prev => prev + 1);
-    }, 50);
+    const obsInterval = setInterval(() => {
+      setObstacles(prev => [...prev, { top: -10, left: Math.floor(Math.random() * 6) * 15 + 15 }]);
+    }, 1200);
 
-    // Yeni engel oluşturma
-    const obstacleInterval = setInterval(() => {
-      setObstacles(prev => [...prev, { top: -10, left: Math.floor(Math.random() * 9) * 10 + 10 }]);
-    }, 1500);
-
-    return () => {
-      clearInterval(gameInterval);
-      clearInterval(obstacleInterval);
-    };
+    return () => { clearInterval(gameInterval); clearInterval(obsInterval); };
   }, [gameStarted, gameOver, carPos]);
 
-  const resetGame = () => {
-    setCarPos(50);
-    setObstacles([]);
-    setScore(0);
-    setGameOver(false);
-    setGameStarted(true);
-  };
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white font-sans">
-      <h1 className="text-4xl font-bold mb-4 text-yellow-400">NEON RACER</h1>
-      
-      <div className="relative w-80 h-[500px] bg-slate-800 border-x-4 border-dashed border-slate-600 overflow-hidden shadow-2xl">
-        {/* Yol Çizgileri Animasyonu */}
-        <div className="absolute inset-0 flex justify-center">
-          <div className="w-1 bg-slate-700 h-full border-l-2 border-dashed border-slate-500 opacity-30"></div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
+      <div className="relative w-full max-w-md h-[600px] bg-slate-900 border-4 border-yellow-500 rounded-lg overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.3)]">
+        
+        {/* Yol Efekti */}
+        <div className="absolute inset-0 flex justify-around opacity-20">
+          {[1,2,3].map(i => <div key={i} className="w-1 h-full border-l-2 border-dashed border-white"></div>)}
         </div>
 
-        {!gameStarted && !gameOver && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 text-center p-4">
-            <button onClick={() => setGameStarted(true)} className="bg-yellow-500 hover:bg-yellow-400 px-6 py-2 rounded-full font-bold text-black transition">BAŞLAT</button>
-          </div>
-        )}
+        {/* Skor Tablosu */}
+        <div className="absolute top-4 left-4 z-30 bg-black/50 p-2 rounded border border-yellow-500">
+          <p className="text-yellow-400 font-mono text-xl">SKOR: {score}</p>
+        </div>
 
-        {gameOver && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/80 z-20 text-center p-4">
-            <h2 className="text-2xl font-bold mb-2">EYVAH! ÇARPTIN!</h2>
-            <p className="mb-4">Skor: {score}</p>
-            <button onClick={resetGame} className="bg-white text-red-900 px-6 py-2 rounded-full font-bold">TEKRAR DENE</button>
+        {/* Oyun Başlangıç / Bitiş Ekranı */}
+        {(!gameStarted || gameOver) && (
+          <div className="absolute inset-0 z-40 bg-black/90 flex flex-col items-center justify-center p-6 text-center">
+            <Trophy className="text-yellow-500 w-16 h-16 mb-4" />
+            <h1 className="text-4xl font-black italic mb-2 tracking-tighter text-yellow-500">NEON DRIVER</h1>
+            
+            {gameOver && <p className="text-2xl text-red-500 font-bold mb-4">OYUN BİTTİ! SKOR: {score}</p>}
+            
+            <button 
+              onClick={() => {setScore(0); setObstacles([]); setGameOver(false); setGameStarted(true);}}
+              className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-black px-8 py-3 rounded-full font-black text-xl transition-all scale-100 hover:scale-110"
+            >
+              {gameOver ? <RotateCcw /> : <Play />} {gameOver ? "TEKRAR DENE" : "GAZA BAS!"}
+            </button>
+
+            <div className="mt-8 w-full">
+              <p className="text-gray-400 mb-2 uppercase text-xs tracking-widest">Liderlik Tablosu</p>
+              {highScores.map((s, i) => (
+                <div key={i} className="flex justify-between border-b border-white/10 py-1 font-mono">
+                  <span>{i+1}. {s.name}</span>
+                  <span className="text-yellow-500">{s.score}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
         {/* Oyuncu Arabası */}
-        <div 
-          className="absolute bottom-10 transition-all duration-100 ease-out"
-          style={{ left: `${carPos}%`, transform: 'translateX(-50%)' }}
-        >
-          <div className="w-10 h-16 bg-blue-500 rounded-md border-2 border-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.8)] relative">
-             <div className="absolute top-2 left-1 w-2 h-3 bg-cyan-200 rounded-sm"></div>
-             <div className="absolute top-2 right-1 w-2 h-3 bg-cyan-200 rounded-sm"></div>
+        <div className="absolute bottom-10 transition-all duration-75" style={{ left: `${carPos}%`, transform: 'translateX(-50%)' }}>
+          <div className="w-12 h-20 bg-gradient-to-t from-blue-700 to-cyan-400 rounded-lg shadow-[0_0_20px_#06b6d4] relative">
+            <div className="absolute top-0 w-full h-4 bg-white/30 rounded-t-lg"></div> {/* Ön Cam */}
+            <div className="absolute -bottom-1 -left-1 w-3 h-5 bg-red-600 blur-[2px]"></div> {/* Arka Far */}
+            <div className="absolute -bottom-1 -right-1 w-3 h-5 bg-red-600 blur-[2px]"></div>
           </div>
         </div>
 
         {/* Engeller */}
-        {obstacles.map((obs, index) => (
-          <div 
-            key={index}
-            className="absolute w-10 h-14 bg-red-600 rounded-sm shadow-lg"
-            style={{ top: `${obs.top}%`, left: `${obs.left}%`, transform: 'translateX(-50%)' }}
-          >
-            <div className="absolute bottom-1 left-1 w-2 h-1 bg-orange-400"></div>
-            <div className="absolute bottom-1 right-1 w-2 h-1 bg-orange-400"></div>
+        {obstacles.map((o, i) => (
+          <div key={i} className="absolute w-12 h-16 bg-gradient-to-b from-red-600 to-orange-400 rounded shadow-lg" style={{ top: `${o.top}%`, left: `${o.left}%`, transform: 'translateX(-50%)' }}>
+            <div className="w-full h-2 bg-black/20 mt-2"></div>
           </div>
         ))}
       </div>
-
-      <div className="mt-6 text-center">
-        <p className="text-xl">Skor: <span className="font-mono font-bold text-yellow-400">{score}</span></p>
-        <p className="text-sm text-slate-400 mt-2">Ok tuşlarını kullanarak hareket et!</p>
-      </div>
+      <p className="mt-4 text-gray-500">Ok Tuşları ile Yönet</p>
     </div>
   );
 };
